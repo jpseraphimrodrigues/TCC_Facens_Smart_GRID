@@ -1,0 +1,24 @@
+[project]
+name = "tcc-facens"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "SERAPHIM", email = "jpseraphimrodrigues@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "altdss>=0.2.4",
+    "matplotlib>=3.11.2",
+    "networkx>=3.7",
+    "numpy>=2.5.3",
+    "pandas>=3.0.6",
+    "pyyaml>=6.0.3",
+]
+
+[project.scripts]
+tcc-facens = "tcc_facens:main"
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"
