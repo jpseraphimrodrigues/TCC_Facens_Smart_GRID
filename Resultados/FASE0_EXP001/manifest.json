@@ -1,0 +1,85 @@
+{
+  "data_de_execucao": "2026-09-24T01:13:12",
+  "versao_do_codigo_git": "7219216",
+  "python": "3.13.15",
+  "altdss": "0.2.4",
+  "lambda_2_por_cenario_estatico": {
+    "C0": 0.6570769172228301,
+    "C1": 0.2679491924311227,
+    "C2": 0.0,
+    "C3_lider_curta": 0.0,
+    "C3_lider_longa": 0.0,
+    "C3_naolider_curta": 0.0,
+    "C3_naolider_longa": 0.0
+  },
+  "hash_da_adjacencia_por_cenario": {
+    "C0": "bc0de82b2af35f35",
+    "C1": "d34fb7efe969d629",
+    "C2": "6acff2b3d32c58e0",
+    "C3_lider_curta": "6acff2b3d32c58e0",
+    "C3_lider_longa": "6acff2b3d32c58e0",
+    "C3_naolider_curta": "4094913c5c05754d",
+    "C3_naolider_longa": "4094913c5c05754d"
+  },
+  "violacao_acumulada_S_i_pu_h": {
+    "824": 0.06972752074036914,
+    "816": 0.07204422526004084,
+    "828": 0.06908489448040744,
+    "830": 0.04929003214381966,
+    "850": 0.07203271670298106,
+    "832": 0.017298267601858486
+  },
+  "lider": {
+    "barra": "816",
+    "pvsystem": "pv2",
+    "criterio": "B: argmax S_i (secao 4.4.1)"
+  },
+  "hora_de_pico_para_c3": 10,
+  "validacoes": [
+    {
+      "checagem": "P_gerada <= P_disponivel em todo passo",
+      "passou": true,
+      "detalhe": "maior excesso = 2.84e-14 kW"
+    },
+    {
+      "checagem": "E_disponivel = E_gerada + E_cortada",
+      "passou": true,
+      "detalhe": "maior diferenca = 2.84e-14 kW"
+    },
+    {
+      "checagem": "Tensoes pu finitas e < 2 pu (sanidade de base)",
+      "passou": true,
+      "detalhe": ""
+    },
+    {
+      "checagem": "lambda_2(C0) > 0",
+      "passou": true,
+      "detalhe": "0.6571"
+    },
+    {
+      "checagem": "lambda_2(C1) > 0",
+      "passou": true,
+      "detalhe": "0.2679"
+    },
+    {
+      "checagem": "lambda_2(C2) = 0",
+      "passou": true,
+      "detalhe": "0.0000"
+    },
+    {
+      "checagem": "LF: correcao nao nula apenas no lider",
+      "passou": true,
+      "detalhe": ""
+    },
+    {
+      "checagem": "Mesma P_disponivel em todos os casos (sem vazamento de estado)",
+      "passou": true,
+      "detalhe": "maior variacao = 5.32e-03 kW (tol. 0.015 kW)"
+    },
+    {
+      "checagem": "Casos em k_max marcados como nao_convergiu (informativo)",
+      "passou": true,
+      "detalhe": "8 horas-caso marcadas"
+    }
+  ]
+}

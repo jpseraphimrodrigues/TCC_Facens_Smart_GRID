@@ -1,0 +1,15 @@
+arquitetura,cenario,horas_com_controle_ativo,horas_nao_convergidas,iteracoes_totais_no_dia,iteracoes_hora_pico,status_hora_pico
+leader_follower,C0,8.0,0.0,1457.0,163.0,convergiu
+leader_follower,C1,8.0,0.0,1481.0,167.0,convergiu
+leader_follower,C2,8.0,7.0,3647.0,500.0,nao_convergiu
+leader_follower,C3_lider_curta,8.0,0.0,1461.0,167.0,convergiu
+leader_follower,C3_lider_longa,8.0,1.0,1794.0,500.0,nao_convergiu
+leader_follower,C3_naolider_curta,8.0,0.0,1457.0,163.0,convergiu
+leader_follower,C3_naolider_longa,8.0,0.0,1457.0,163.0,convergiu
+leaderless,C0,8.0,0.0,530.0,54.0,convergiu
+leaderless,C1,8.0,0.0,537.0,55.0,convergiu
+leaderless,C2,8.0,0.0,524.0,52.0,convergiu
+leaderless,C3_lider_curta,8.0,0.0,530.0,54.0,convergiu
+leaderless,C3_lider_longa,8.0,0.0,528.0,52.0,convergiu
+leaderless,C3_naolider_curta,8.0,0.0,530.0,54.0,convergiu
+leaderless,C3_naolider_longa,8.0,0.0,528.0,52.0,convergiu
