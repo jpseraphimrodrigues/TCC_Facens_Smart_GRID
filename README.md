@@ -15,7 +15,7 @@ Este projeto investiga se algoritmos de controle distribuído (onde vários gera
 No mundo Python tradicional, configurar ambientes virtuais (`venv`), versões de Python e bibliotecas (`pip install`) costuma causar conflitos de versão entre computadores. 
 
 Para resolver isso, este projeto utiliza o **`uv`**, uma ferramenta moderna desenvolvida em Rust pela Astral:
-* **Autonomia de Python:** Você não precisa ter o Python 3.13 previamente instalado na máquina; o `uv` faz o download e isola a versão correta automaticamente.
+* **Gerenciamento de Python:** O projeto requer Python 3.13 ou superior. O `uv` pode usar uma instalação existente ou baixar/gerenciar uma versão compatível, conforme a configuração do ambiente.
 * **Isolamento Total:** Cria um ambiente virtual em sandbox sem poluir as configurações globais do seu computador.
 * **Reprodutibilidade:** Garante que qualquer membro da equipe execute o código com exatamente as mesmas versões de bibliotecas registradas no arquivo `uv.lock`.
 
@@ -57,12 +57,91 @@ git clone https://github.com/jpseraphimrodrigues/TCC_Facens_Smart_GRID.git
 cd TCC_Facens_Smart_GRID
 
 # 3. Sincronize as dependências e o ambiente virtual com o uv
-#    (O uv baixa o Python 3.13 e todas as bibliotecas necessárias automaticamente)
+#    (O uv sincroniza as dependências e pode gerenciar uma versão compatível do Python)
 uv sync
 
 # 4. Execute a simulação completa (2 arquiteturas x cenários C0 a C3)
 uv run python Experimento_Consenso_comunication_failure.py
 ```
+
+### Configuração atual do experimento probabilístico
+
+O projeto possui dois modos complementares. O baseline determinístico testa
+remoções estruturais de enlaces e isolamento temporário de agentes. O modo
+probabilístico, ativado por `--enable-channel`, simula perda e atraso de
+mensagens em enlaces disponíveis. Os resultados devem ser analisados conforme
+o modo utilizado e a configuração registrada no manifesto.
+
+1. **Canal probabilístico:** use `--enable-channel` com `--loss-probability`,
+   `--delay-steps` e `--seed`. Salve esses resultados em uma pasta separada do
+   baseline para que os experimentos possam ser comparados.
+
+2. **A equação de atualização anterior precisa de uma ressalva de sinal.** O
+   código usa `rho` como fração cortada e soma o termo de correção:
+
+   ```text
+   rho(k+1) = clip((I - epsilon L)rho(k) + c(k), 0, 1)
+   ```
+
+   A variável `rho` representa a fração de corte; portanto, sobretensão aumenta
+   `rho` e o termo corretivo aparece com sinal positivo.
+
+3. **Resultados:** as figuras em `Resultados/FASE0_EXP001` correspondem ao
+   baseline determinístico. Uma execução probabilística gera evidência própria,
+   incluindo `raw/channel_messages.csv`, e deve ser identificada por sua pasta,
+   semente e parâmetros do canal.
+
+4. **“Comunicação ideal” tem dois sentidos possíveis.** C0 no baseline
+   significa grafo nominal sem remoção determinística de enlace. No modo novo,
+   para ser realmente ideal também é necessário usar `--loss-probability 0` e
+   `--delay-steps 0`. Uma execução com C0 e perda de 5% não é comunicação ideal;
+   é C0 com canal probabilístico.
+
+5. **A afirmação de que o Leaderless “mantém o controle” é condicionada.**
+   Ela descreve os resultados registrados para o alimentador, as curvas, os
+   ganhos e os cenários deste experimento. Não é uma prova de superioridade
+   geral. No modo probabilístico, a conclusão precisa ser baseada em várias
+   replicações e no `resumo_estatistico.csv`.
+
+6. **A palavra “perda” nos cenários C1 e C2 é estrutural.** Nesses cenários,
+   “perda permanente do enlace” significa que o enlace foi removido da
+   topologia durante o dia. Não significa que exatamente uma porcentagem de
+   pacotes foi perdida. A porcentagem de pacotes pertence ao parâmetro
+   `--loss-probability` do canal experimental.
+
+7. **O grafo de comunicação não é automaticamente a rede física de
+   telecomunicações.** Ele é uma hipótese manual de conectividade entre os
+   agentes. O IEEE 34 barras é o modelo elétrico; o grafo dos seis agentes é o
+   modelo lógico de comunicação. O README não deve ser interpretado como uma
+   validação de uma infraestrutura IEC 61850 real.
+
+8. **O IEEE 34 barras é um alimentador de referência.** Ele não representa uma
+   instalação real medida. As curvas `Entradas/curvas_24h.csv` são entradas do
+   experimento, não medições de campo.
+
+9. **A árvore do repositório evoluiu.** Além dos itens mostrados na árvore
+   original, o estado atual inclui `src/tcc_facens/communication.py`,
+   `scripts/run_channel_sweep.py`, `tests/`, `uv.lock` e o entry point
+   instalável. O modo probabilístico também cria `raw/channel_messages.csv`,
+   enquanto `raw/log_mensagens.csv` continua sendo o log topológico legado.
+
+10. **O `uv` pode instalar o Python, mas isso depende da configuração do
+    ambiente.** O comando `uv sync` usa o Python disponível ou um Python que o
+    `uv` consiga baixar/gerenciar. A versão exigida pelo projeto é Python 3.13
+    ou superior, conforme `pyproject.toml`; em caso de dúvida, confirmar com
+    `uv python list` e `uv run python --version`.
+
+11. **O projeto usa snapshots horários, não uma simulação transitória.** O
+    atraso em `--delay-steps` é atraso discreto entre iterações do algoritmo de
+    consenso dentro do snapshot. Ele não representa automaticamente atraso
+    físico em segundos, estabilidade eletromagnética ou dinâmica real de um
+    inversor.
+
+12. **A pasta de sweep possui uma estrutura própria.** Depois de executar
+    `scripts/run_channel_sweep.py`, os arquivos estatísticos ficam diretamente
+    na pasta informada em `--output-dir`, enquanto cada execução individual
+    fica em `replicacao_001/`, `replicacao_002/` e assim por diante. Portanto,
+    `resumo_estatistico.csv` não fica dentro de `summary/` das replicações.
 
 Para executar o modelo experimental de comunicação com perda probabilística e
 atraso, use uma pasta de saída separada para não sobrescrever o baseline:
@@ -344,7 +423,7 @@ $$\lambda_2(L) = 0 \iff \text{Grafo Particionado (desconexo)}$$
 
 #### Equação de Atualização de Estado
 A cada iteração de controle $k$, cada agente atualiza sua fração de curtailment $\rho_i(k)$ segundo:
-$$\rho_i(k+1) = \operatorname{clip}\left( \rho_i(k) + \varepsilon \sum_{j \in \mathcal{N}_i} a_{ij}(k) \big[\rho_j(k) - \rho_i(k)\big] - c_i(k),\, 0,\, 1 \right)$$
+$$\rho_i(k+1) = \operatorname{clip}\left( \rho_i(k) + \varepsilon \sum_{j \in \mathcal{N}_i} a_{ij}(k) \big[\rho_j(k) - \rho_i(k)\big] + c_i(k),\, 0,\, 1 \right)$$
 com a potência ativa cortada dada por:
 $$P_{\text{curt},i}(k) = \rho_i(k) \cdot P_{\text{disp},i}(k)$$
 
@@ -465,7 +544,7 @@ graph LR
 
 | Cenário | Descrição da Falha | Condição Topológica | Hipótese Testada | O que se espera observar |
 | :--- | :--- | :---: | :---: | :--- |
-| **C0** | **Comunicação Ideal** | Conexo ($\lambda_2 = 0{,}6571$) | **Baseline Geral** | Padrão ouro: convergência suave, $\sigma_r \approx 0$ e $V_{\max} \le 1{,}05\text{ pu}$. |
+| **C0** | **Comunicação Ideal no baseline** | Conexo ($\lambda_2 = 0{,}6571$) | **Baseline Geral** | Padrão de comparação: convergência suave, $\sigma_r \approx 0$ e $V_{\max} \le 1{,}05\text{ pu}$. No canal probabilístico, use perda 0 e atraso 0 para reproduzir essa condição. |
 | **C1** | **Perda Permanente do Atalho $(2,5)$** | Conexo ($\lambda_2 = 0{,}2679$) | **H1 e H2** | O grafo não se parte, mas a perda do atalho aumenta os saltos de comunicação, elevando $N_{\text{iter}}$. |
 | **C2** | **Particionamento Permanente $(1,2)$** | **Desconexo** ($\lambda_2 = 0$) | **H4 e H5** | O líder $\{1\}$ fica isolado de $\{2,3,4,5,6\}$. O LF colapsa por falta de liderança; o Leaderless mantém o controle. |
 | **C3_lider_curta** | **Líder isolado na hora 10h, volta em $k=20$** | Conjuntamente Conexo | **H4′ e H5a** | O líder desconecta no pico solar e retorna rápido. Avalia se o sistema se recupera assintoticamente. |
@@ -473,8 +552,11 @@ graph LR
 | **C3_naolider_curta** | **Nó 6 (periférico) isolado, volta em $k=20$** | Conjuntamente Conexo | **H4′ e H5a** | Demonstra que a perda transitória de um não-líder gera distúrbio desprezível. |
 | **C3_naolider_longa** | **Nó 6 (periférico) isolado até $k_{\max}=500$** | Desconexo na hora | **H5a** | Contraste estrutural direto com a falha longa do líder (evidencia a assimetria do LF frente ao Leaderless). |
 
-> **Nota sobre o Cenário C4 (Perda Estocástica de Pacotes):**
-> O modelo de *packet loss* ($a_{ij}(k) = a_{ij}^0 \cdot \text{Bernoulli}(1 - p_{\text{loss}})$) foi formalizado teoricamente, mas mantido fora desta versão por exigir grande volume de replicações Monte Carlo ($R \ge 30$). O foco presente concentra-se nas respostas analíticas causais determinísticas (C0 a C3).
+> **Canal probabilístico:** a perda estocástica de mensagens é executada com
+> `--enable-channel`. A probabilidade de perda é definida por
+> `--loss-probability`, o atraso discreto por `--delay-steps` e a repetibilidade
+> por `--seed`. Para avaliar variabilidade, use `scripts/run_channel_sweep.py` e
+> consulte `resumo_estatistico.csv`.
 
 ---
 
@@ -489,14 +571,14 @@ O gráfico a seguir ilustra visualmente as matrizes e grafos de conectividade em
 ## 6. Resultados Simulados e Validação das Hipóteses Científicas
 
 ### 6.1 Particionamento da Rede (Hipótese H5 — Cenário C2)
-Quando a rede é bipartida permanentemente no enlace $(1, 2)$, o líder fica ilhado:
+Quando a rede é bipartida permanentemente no enlace $(1, 2)$, o líder fica ilhado no cenário C2:
 * **Em Leader-Follower:** A partição dos seguidores fica cega (sem injeção de erro de sobretensão) e o controle falha em regular as barras a jusante, resultando em sobretensão sustentada.
-* **Em Leaderless:** Os inversores continuam regulando de forma autônoma a partir de suas tensões locais, mantendo o barramento estritamente abaixo de $1{,}05\text{ pu}$.
+* **Em Leaderless:** Os inversores continuam calculando correções a partir de suas tensões locais. O resultado elétrico deve ser confirmado pelos CSVs da execução; não é uma garantia para qualquer rede ou parâmetro.
 
 ![H5 Particionamento](Resultados/FASE0_EXP001/figures/07_H5_particionamento.png)
 
 ### 6.2 Falha do Líder vs. Não-Líder (Hipótese H5a — Cenário C3)
-A vulnerabilidade estrutural do Leader-Follower reside na centralização lógica da informação: a falha do nó 1 (líder) anula a resposta de toda a rede, enquanto a perda do nó 6 tem impacto quase nulo. No Leaderless, a resposta é proporcional e distribuída, independentemente de qual nó perca a comunicação:
+A vulnerabilidade estrutural observada no experimento Leader-Follower decorre da centralização lógica da informação: a falha do nó 1 (líder) tem impacto maior que a perda do nó 6. No Leaderless, a correção é distribuída pelas medições locais, mas o efeito final depende da rede elétrica, dos parâmetros e da execução:
 
 ![H5a Falha do Líder](Resultados/FASE0_EXP001/figures/08_H5a_falha_lider.png)
 
