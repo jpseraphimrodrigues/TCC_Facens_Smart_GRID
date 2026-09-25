@@ -66,15 +66,32 @@ uv run python Experimento_Consenso_comunication_failure.py
 
 ### Configuração atual do experimento probabilístico
 
-O projeto possui dois modos complementares. O baseline determinístico testa
-remoções estruturais de enlaces e isolamento temporário de agentes. O modo
-probabilístico, ativado por `--enable-channel`, simula perda e atraso de
-mensagens em enlaces disponíveis. Os resultados devem ser analisados conforme
-o modo utilizado e a configuração registrada no manifesto.
+O projeto possui dois modos complementares, e os dois seguem a mesma estrutura
+de três camadas: (1) **sem controle** (baseline sem consenso), (2) **com
+controle, sem perdas de comunicação** e (3) **com controle, com cenários de
+perda de comunicação**. O que muda entre os modos é como a camada 3 é
+construída:
 
-1. **Canal probabilístico:** use `--enable-channel` com `--loss-probability`,
-   `--delay-steps` e `--seed`. Salve esses resultados em uma pasta separada do
-   baseline para que os experimentos possam ser comparados.
+* No **baseline determinístico**, a camada 3 é a remoção estrutural de
+  enlaces ou o isolamento temporário de agentes (cenários `C1`, `C2`,
+  `C3_*`). A camada 2 é o cenário `C0` (grafo nominal, sem falha).
+* No **modo probabilístico** (`--enable-channel`), a topologia permanece
+  sempre a nominal — a falha não é mais estrutural, é a perda/atraso de
+  mensagens individuais. A camada 2 é `C0` com o canal ativo e perda `0.00`
+  (controle "com canal, mas sem perdas"), e a camada 3 é um cenário
+  `C0_perda_<p>` por cada probabilidade de perda testada.
+
+Isso evita conflacionar os dois eixos: uma execução com `--enable-channel`
+nunca aplica perda probabilística sobre `C1`/`C2`/`C3` — esses continuam
+sendo o eixo estrutural determinístico, executados sem canal.
+
+1. **Canal probabilístico:** use `--enable-channel` com `--loss-probability`
+   (uma probabilidade, ou várias separadas por vírgula, ex.:
+   `--loss-probability 0.05,0.1,0.2`), `--delay-steps` e `--seed`. O valor
+   `0.0` é sempre incluído automaticamente como o cenário de controle `C0`;
+   cada valor adicional gera um cenário `C0_perda_<p>` próprio. Salve esses
+   resultados em uma pasta separada do baseline para que os experimentos
+   possam ser comparados.
 
 2. **A equação de atualização anterior precisa de uma ressalva de sinal.** O
    código usa `rho` como fração cortada e soma o termo de correção:
@@ -91,11 +108,13 @@ o modo utilizado e a configuração registrada no manifesto.
    incluindo `raw/channel_messages.csv`, e deve ser identificada por sua pasta,
    semente e parâmetros do canal.
 
-4. **“Comunicação ideal” tem dois sentidos possíveis.** C0 no baseline
-   significa grafo nominal sem remoção determinística de enlace. No modo novo,
-   para ser realmente ideal também é necessário usar `--loss-probability 0` e
-   `--delay-steps 0`. Uma execução com C0 e perda de 5% não é comunicação ideal;
-   é C0 com canal probabilístico.
+4. **“Comunicação ideal” (`C0`) tem o mesmo significado nos dois modos: com
+   controle, sem perda.** No baseline determinístico, `C0` é o grafo nominal
+   sem remoção de enlace, executado sem canal. No modo probabilístico, `C0`
+   é o mesmo grafo nominal, mas executado *através* do canal com perda
+   `0.00` — isso valida que o canal não introduz viés quando não há perda.
+   Uma execução com perda de 5% nunca é rotulada `C0`; ela aparece como o
+   cenário `C0_perda_0.05`, distinto do controle.
 
 5. **A afirmação de que o Leaderless “mantém o controle” é condicionada.**
    Ela descreve os resultados registrados para o alimentador, as curvas, os
@@ -144,12 +163,14 @@ o modo utilizado e a configuração registrada no manifesto.
     `resumo_estatistico.csv` não fica dentro de `summary/` das replicações.
 
 Para executar o modelo experimental de comunicação com perda probabilística e
-atraso, use uma pasta de saída separada para não sobrescrever o baseline:
+atraso, use uma pasta de saída separada para não sobrescrever o baseline. O
+exemplo abaixo gera três cenários de perda (`C0_perda_0.05`, `C0_perda_0.10`,
+`C0_perda_0.20`) além do controle automático `C0` (perda `0.00`):
 
 ```powershell
 uv run python Experimento_Consenso_comunication_failure.py `
   --enable-channel `
-  --loss-probability 0.05 `
+  --loss-probability 0.05,0.1,0.2 `
   --delay-steps 1 `
   --seed 42 `
   --output-dir Resultados/FASE0_EXP001_CHANNEL
@@ -256,15 +277,16 @@ Cada argumento tem uma função específica:
 | Parâmetro | O que significa | Valores aceitos | Efeito do exemplo |
 |---|---|---|---|
 | `--enable-channel` | Liga o modelo probabilístico de mensagens. | Não recebe valor; presente ou ausente. | O canal é usado no consenso. |
-| `--loss-probability` | Probabilidade de uma transmissão ser perdida. | Número real entre `0` e `1`, inclusive. | `0.05` significa 5% de perda esperada por tentativa. |
+| `--loss-probability` | Probabilidade(s) de uma transmissão ser perdida. | Um ou mais números reais entre `0` e `1`, separados por vírgula. | `0.05,0.1,0.2` cria três cenários `C0_perda_*`, além do controle `C0` (perda `0.00`, sempre incluído). |
 | `--delay-steps` | Quantidade inteira de iterações até a entrega. | Inteiro maior ou igual a `0`. | `1` significa que uma mensagem enviada em `k` pode ser usada em `k+1`. |
 | `--seed` | Semente do gerador pseudoaleatório. | Inteiro; também pode ser omitido. | `42` permite repetir a mesma sequência de perdas. |
 | `--output-dir` | Pasta para os resultados da execução. | Caminho válido. | Evita sobrescrever o baseline. |
 
 Valores típicos:
 
-* `--loss-probability 0`: nenhuma perda aleatória; útil para conferir o comportamento sem perdas.
-* `--loss-probability 0.05`: 5% de perda por tentativa.
+* `--loss-probability 0`: nenhuma perda aleatória; equivalente ao cenário de controle `C0` (que já roda automaticamente).
+* `--loss-probability 0.05`: um único cenário adicional, `C0_perda_0.05`.
+* `--loss-probability 0.05,0.1,0.2`: três cenários de perda na mesma execução, comparáveis ao mesmo controle `C0`.
 * `--loss-probability 1`: todas as transmissões são perdidas; é um teste extremo.
 * `--delay-steps 0`: entrega imediata dentro do ciclo.
 * `--delay-steps 1`: uma iteração de atraso.

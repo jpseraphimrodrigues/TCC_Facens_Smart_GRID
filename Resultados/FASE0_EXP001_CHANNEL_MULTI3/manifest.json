@@ -1,0 +1,108 @@
+{
+  "data_de_execucao": "2026-09-25T15:25:25+00:00",
+  "versao_do_codigo_git": "b728e4c",
+  "python": "3.13.15",
+  "altdss": "0.2.4",
+  "modelo_de_comunicacao": "C1-C3: falha deterministica de topologia (periodo de 0.2 s apenas no log). C0/C0_perda_*: canal probabilistico sobre topologia nominal, quando habilitado.",
+  "configuracao_do_canal": {
+    "habilitado": true,
+    "probabilidades_de_perda": [
+      0.05,
+      0.1,
+      0.2
+    ],
+    "atraso_em_iteracoes": 1,
+    "semente": 42
+  },
+  "arquivos_de_entrada": {
+    "codigo": "5b202579e983caa513fab076457c3b803484f227716fc96c439862c476317ff7",
+    "rede": "05ccc20afedf274f97118ea92608858975df4511e5c3e69d11a5f445608b7c01",
+    "curvas": "726ee7082ae88b25652aadf0d687fa7869f5357e07b0629f28781fafafa5e94c",
+    "lockfile": "b24a1bbc45c60c5cd2a0b1c56cad689bd720824eeb48a4ad8017fd4bc4372dd8"
+  },
+  "lambda_2_por_cenario_estatico": {
+    "C1": 0.2679491924311227,
+    "C2": 0.0,
+    "C3_lider_curta": 0.0,
+    "C3_lider_longa": 0.0,
+    "C3_naolider_curta": 0.0,
+    "C3_naolider_longa": 0.0,
+    "C0": 0.6570769172228301,
+    "C0_perda_0.05": 0.6570769172228301,
+    "C0_perda_0.10": 0.6570769172228301,
+    "C0_perda_0.20": 0.6570769172228301
+  },
+  "hash_da_adjacencia_por_cenario": {
+    "C1": "d34fb7efe969d629",
+    "C2": "6acff2b3d32c58e0",
+    "C3_lider_curta": "6acff2b3d32c58e0",
+    "C3_lider_longa": "6acff2b3d32c58e0",
+    "C3_naolider_curta": "4094913c5c05754d",
+    "C3_naolider_longa": "4094913c5c05754d",
+    "C0": "bc0de82b2af35f35",
+    "C0_perda_0.05": "bc0de82b2af35f35",
+    "C0_perda_0.10": "bc0de82b2af35f35",
+    "C0_perda_0.20": "bc0de82b2af35f35"
+  },
+  "violacao_acumulada_S_i_pu_h": {
+    "824": 0.06972752074036848,
+    "816": 0.07204422526004062,
+    "828": 0.069084894480407,
+    "830": 0.04929003214381944,
+    "850": 0.07203271670298128,
+    "832": 0.01729826760185893
+  },
+  "lider": {
+    "barra": "816",
+    "pvsystem": "pv2",
+    "criterio": "B: argmax S_i (secao 4.4.1)"
+  },
+  "hora_de_pico_para_c3": 10,
+  "validacoes": [
+    {
+      "checagem": "P_gerada <= P_disponivel em todo passo",
+      "passou": true,
+      "detalhe": "maior excesso = 2.84e-14 kW"
+    },
+    {
+      "checagem": "E_disponivel = E_gerada + E_cortada",
+      "passou": true,
+      "detalhe": "maior diferenca = 2.84e-14 kW"
+    },
+    {
+      "checagem": "Tensoes pu finitas e < 2 pu (sanidade de base)",
+      "passou": true,
+      "detalhe": ""
+    },
+    {
+      "checagem": "lambda_2(C0) > 0",
+      "passou": true,
+      "detalhe": "0.6571"
+    },
+    {
+      "checagem": "lambda_2(C1) > 0",
+      "passou": true,
+      "detalhe": "0.2679"
+    },
+    {
+      "checagem": "lambda_2(C2) = 0",
+      "passou": true,
+      "detalhe": "0.0000"
+    },
+    {
+      "checagem": "LF: correcao nao nula apenas no lider",
+      "passou": true,
+      "detalhe": ""
+    },
+    {
+      "checagem": "Mesma P_disponivel em todos os casos (sem vazamento de estado)",
+      "passou": true,
+      "detalhe": "maior variacao = 5.32e-03 kW (tol. 0.015 kW)"
+    },
+    {
+      "checagem": "Casos em k_max marcados como nao_convergiu (informativo)",
+      "passou": true,
+      "detalhe": "8 horas-caso marcadas"
+    }
+  ]
+}

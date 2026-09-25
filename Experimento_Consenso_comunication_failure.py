@@ -64,7 +64,7 @@ PASTA_DE_LOGS = PASTA_DE_RESULTADOS / "logs"
 
 CONFIGURACAO_COMUNICACAO = {
     "habilitado": False,
-    "probabilidade_de_perda": 0.0,
+    "probabilidades_de_perda": [0.0],
     "atraso_em_iteracoes": 0,
     "semente": None,
 }
@@ -168,6 +168,8 @@ class DefinicaoDeCenario:
     indice_do_agente_isolado: int | None = None  # C3: agente m
     iteracao_de_retorno_do_agente: int | None = None  # C3: k_r
     agente_isolado_e_o_lider: bool | None = None  # C3: m = líder? (H5a)
+    canal_habilitado: bool = False  # cenario probabilistico: perda/atraso por mensagem sobre topologia nominal
+    probabilidade_de_perda_do_canal: float = 0.0  # so tem efeito quando canal_habilitado=True
 
 
 # =============================================================================
@@ -584,6 +586,35 @@ def definir_cenarios_de_falha():
             agente_isolado_e_o_lider=False,
         ),
     ]
+
+
+def definir_cenarios_de_perda_probabilistica(probabilidades_de_perda):
+    """
+    Cenários do canal probabilístico (--enable-channel), topologia SEMPRE nominal.
+
+    Eixo independente do eixo estrutural C1-C3: aqui a topologia nunca muda
+    (arestas_removidas=[], nenhum agente isolado); só a probabilidade de perda
+    por mensagem varia. Isso evita conflacionar "enlace removido" com "mensagem
+    perdida" (achado A1/A9 da auditoria).
+
+    `0.0` é sempre incluído e reaproveita o nome "C0": é o controle "com
+    controle, sem perdas de comunicação" do modo probabilístico. Valores
+    positivos viram os cenários "com controle, com perda de comunicação"
+    (`C0_perda_<p>`).
+    """
+    valores = sorted({0.0, *probabilidades_de_perda})
+    cenarios = []
+    for valor in valores:
+        nome = "C0" if valor == 0.0 else f"C0_perda_{valor:.2f}"
+        descricao = (
+            "comunicacao ideal (canal probabilistico ativo, perda 0.00)"
+            if valor == 0.0
+            else f"topologia nominal, canal probabilistico com perda {valor:.2f} por mensagem"
+        )
+        cenarios.append(
+            DefinicaoDeCenario(nome, descricao, canal_habilitado=True, probabilidade_de_perda_do_canal=valor)
+        )
+    return cenarios
 
 
 # =============================================================================
@@ -1382,13 +1413,13 @@ def simular_dia_com_consenso(arquitetura, definicao_do_cenario, curvas, agentes,
 
         registrador_de_comunicacao.iniciar_hora(hora)
         canal = None
-        if CONFIGURACAO_COMUNICACAO["habilitado"]:
+        if CONFIGURACAO_COMUNICACAO["habilitado"] and definicao_do_cenario.canal_habilitado:
             from tcc_facens.communication import CommunicationChannel
 
             semente = CONFIGURACAO_COMUNICACAO["semente"]
             semente_da_hora = None if semente is None else semente + hora
             canal = CommunicationChannel(
-                loss_probability=CONFIGURACAO_COMUNICACAO["probabilidade_de_perda"],
+                loss_probability=definicao_do_cenario.probabilidade_de_perda_do_canal,
                 delay_steps=CONFIGURACAO_COMUNICACAO["atraso_em_iteracoes"],
                 seed=semente_da_hora,
             )
@@ -1850,7 +1881,8 @@ def figura_06_margem_H3(pasta_de_figuras, tabela_de_resumo):
             continue
         eixo.scatter(
             linha["sigma_r_diario_por_energia"], linha["tensao_maxima_barras_pv_dia_pu"],
-            color=CORES_POR_ARQUITETURA[linha["arquitetura"]], marker=MARCADORES_POR_CENARIO[linha["cenario"]],
+            color=CORES_POR_ARQUITETURA[linha["arquitetura"]],
+            marker=MARCADORES_POR_CENARIO.get(linha["cenario"], "P"),  # "P": cenarios probabilisticos (C0_perda_*)
             s=70, edgecolor="white", linewidth=1.5, zorder=3,
         )
     desenhar_linha_do_limite_de_tensao(eixo)
@@ -1859,6 +1891,11 @@ def figura_06_margem_H3(pasta_de_figuras, tabela_de_resumo):
         eixo.scatter([], [], color=CORES_POR_ARQUITETURA[arquitetura], marker="o", s=60, label=NOMES_LEGIVEIS_DAS_ARQUITETURAS[arquitetura])
     for nome_do_cenario, marcador in MARCADORES_POR_CENARIO.items():
         eixo.scatter([], [], color=COR_DO_TEXTO_SECUNDARIO, marker=marcador, s=50, label=nome_do_cenario)
+    cenarios_probabilisticos = sorted(
+        set(tabela_de_resumo["cenario"]) - set(MARCADORES_POR_CENARIO) - {"sem_controle"}
+    )
+    if cenarios_probabilisticos:
+        eixo.scatter([], [], color=COR_DO_TEXTO_SECUNDARIO, marker="P", s=50, label="C0_perda_* (canal probabilístico)")
     eixo.legend(loc="center left", bbox_to_anchor=(1.01, 0.5))
     eixo.set_xlabel("σ_r diário (dispersão da razão de curtailment entre agentes)")
     eixo.set_ylabel("Vmax do dia nas barras com PV (pu)")
@@ -2381,6 +2418,8 @@ def salvar_config_yaml(pasta, agentes_na_ordem_do_grafo, epsilon, hora_de_pico, 
                 "posicao_do_agente_isolado": None if cenario.indice_do_agente_isolado is None else cenario.indice_do_agente_isolado + 1,
                 "iteracao_de_retorno": cenario.iteracao_de_retorno_do_agente,
                 "m_e_lider": cenario.agente_isolado_e_o_lider,
+                "canal_habilitado": cenario.canal_habilitado,
+                "probabilidade_de_perda_do_canal": cenario.probabilidade_de_perda_do_canal,
             }
             for cenario in cenarios
         ],
@@ -2419,7 +2458,8 @@ def salvar_manifest_json(pasta, lambda_2_por_cenario, hashes_por_cenario, violac
         "versao_do_codigo_git": obter_versao_do_codigo(),
         "python": platform.python_version(),
         "altdss": getattr(pacote_altdss, "__version__", "desconhecida"),
-        "modelo_de_comunicacao": "falha deterministica de topologia; periodo de 0.2 s apenas no log",
+        "modelo_de_comunicacao": "C1-C3: falha deterministica de topologia (periodo de 0.2 s apenas no log). "
+                                 "C0/C0_perda_*: canal probabilistico sobre topologia nominal, quando habilitado.",
         "configuracao_do_canal": CONFIGURACAO_COMUNICACAO.copy(),
         "arquivos_de_entrada": {
             "codigo": calcular_hash_do_arquivo(Path(__file__)),
@@ -2454,7 +2494,14 @@ def preparar_pastas_de_resultados():
 def main():
     parser = argparse.ArgumentParser(description="Executa o experimento de consenso FACENS.")
     parser.add_argument("--output-dir", type=Path, help="pasta de resultados desta execução")
-    parser.add_argument("--loss-probability", type=float, default=0.0, help="perda Bernoulli por mensagem")
+    parser.add_argument(
+        "--loss-probability",
+        type=str,
+        default="0.0",
+        help="uma ou mais probabilidades de perda por mensagem, separadas por virgula "
+             "(ex.: 0.05,0.1,0.2). 0.0 e sempre incluido automaticamente como controle "
+             "'com controle, sem perdas' (cenario C0).",
+    )
     parser.add_argument("--delay-steps", type=int, default=0, help="atraso inteiro em iterações")
     parser.add_argument("--seed", type=int, default=None, help="semente do canal")
     parser.add_argument("--enable-channel", action="store_true", help="habilita perda/atraso por mensagem")
@@ -2463,16 +2510,24 @@ def main():
     if argumentos.output_dir is not None:
         PASTA_DE_RESULTADOS = argumentos.output_dir.resolve()
         PASTA_DE_LOGS = PASTA_DE_RESULTADOS / "logs"
-    CONFIGURACAO_COMUNICACAO.update(
-        habilitado=argumentos.enable_channel,
-        probabilidade_de_perda=argumentos.loss_probability,
-        atraso_em_iteracoes=argumentos.delay_steps,
-        semente=argumentos.seed,
-    )
-    if not 0.0 <= argumentos.loss_probability <= 1.0:
+
+    try:
+        probabilidades_de_perda = [float(valor) for valor in argumentos.loss_probability.split(",") if valor.strip()]
+    except ValueError:
+        parser.error("--loss-probability deve ser um numero ou uma lista separada por virgula (ex.: 0.05,0.1)")
+    if not probabilidades_de_perda:
+        parser.error("--loss-probability nao pode ser uma lista vazia")
+    if any(not 0.0 <= valor <= 1.0 for valor in probabilidades_de_perda):
         parser.error("--loss-probability deve estar entre 0 e 1")
     if argumentos.delay_steps < 0:
         parser.error("--delay-steps não pode ser negativo")
+
+    CONFIGURACAO_COMUNICACAO.update(
+        habilitado=argumentos.enable_channel,
+        probabilidades_de_perda=probabilidades_de_perda,
+        atraso_em_iteracoes=argumentos.delay_steps,
+        semente=argumentos.seed,
+    )
     preparar_pastas_de_resultados()
     aplicar_estilo_das_figuras()
 
@@ -2510,6 +2565,13 @@ def main():
     print(f"epsilon = 2/tr(L0) = {epsilon:.4f}")
 
     cenarios = definir_cenarios_de_falha()
+    if CONFIGURACAO_COMUNICACAO["habilitado"]:
+        # Eixo probabilistico substitui o "C0" estrutural (canal=None) pelo mesmo
+        # cenario rodado atraves do canal (perda 0.00) mais um por probabilidade de
+        # perda pedida, mantendo C1-C3 como o eixo estrutural determinístico.
+        cenarios = [c for c in cenarios if c.nome != "C0"] + definir_cenarios_de_perda_probabilistica(
+            CONFIGURACAO_COMUNICACAO["probabilidades_de_perda"]
+        )
     lambda_2_por_cenario = {}
     hashes_por_cenario = {}
     for cenario in cenarios:
