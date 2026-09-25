@@ -64,11 +64,195 @@ uv sync
 uv run python Experimento_Consenso_comunication_failure.py
 ```
 
+Para executar o modelo experimental de comunicação com perda probabilística e
+atraso, use uma pasta de saída separada para não sobrescrever o baseline:
+
+```powershell
+uv run python Experimento_Consenso_comunication_failure.py `
+  --enable-channel `
+  --loss-probability 0.05 `
+  --delay-steps 1 `
+  --seed 42 `
+  --output-dir Resultados/FASE0_EXP001_CHANNEL
+```
+
+O manifesto registra os parâmetros do canal. Os eventos por mensagem ficam em
+`raw/channel_messages.csv`; `raw/log_mensagens.csv` continua representando o
+log topológico do baseline determinístico.
+
+Para executar várias replicações com sementes consecutivas e gerar o resumo
+estatístico, use:
+
+```powershell
+uv run python scripts/run_channel_sweep.py `
+  --replications 3 `
+  --loss-probability 0.05 `
+  --delay-steps 1 `
+  --output-dir Resultados/SWEEP_001
+```
+
+O script preserva cada execução em `replicacao_###/` e gera
+`replicacoes_brutas.csv` e `resumo_estatistico.csv`.
+
 ### 0.5 Onde encontrar os resultados gerados?
 Após o término da execução, todos os resultados ficam organizados na pasta `Resultados/FASE0_EXP001/`:
 * **Gráficos em alta resolução:** `Resultados/FASE0_EXP001/figures/` (curvas de tensão, iterações, gráficos de convergência e mapas de calor).
 * **Tabelas consolidadas (CSV):** `Resultados/FASE0_EXP001/summary/` (convergência, dispersão de corte $\sigma_r$, violações de tensão).
 * **Metadados e validações:** `Resultados/FASE0_EXP001/manifest.json` (hashes de integridade e checagens elétricas automáticas).
+
+### 0.6 Guia didático do modo de comunicação probabilístico
+
+O comando básico executa o **baseline determinístico**. Nesse modo, os cenários C1, C2 e C3 representam alterações conhecidas na topologia: um enlace é removido ou um agente é isolado durante uma janela definida. Esse baseline é importante porque permite observar o efeito causal de uma falha controlada.
+
+O modo `--enable-channel` acrescenta uma segunda camada: mesmo quando existe um enlace disponível, cada mensagem pode ser perdida e pode chegar depois de algumas iterações. Essa distinção é fundamental:
+
+* **Falha topológica:** o enlace não existe ou está indisponível; todas as mensagens daquele enlace falham.
+* **Perda probabilística:** o enlace existe, mas uma transmissão específica pode falhar.
+* **Atraso:** a mensagem foi aceita pelo canal, mas só fica disponível ao receptor posteriormente.
+
+O modo probabilístico deve ser executado em outra pasta, pois ele representa uma pergunta experimental diferente do baseline.
+
+#### O que é uma mensagem de comunicação?
+
+Neste projeto, uma mensagem é um pequeno pacote de informação enviado por um agente para um vizinho. Ela contém, principalmente, o estado de curtailment que será usado no consenso. Uma mensagem pode ser imaginada assim:
+
+```text
+origem: agente 2
+destino: agente 3
+conteúdo: rho = 0,20
+passo de envio: k = 10
+passo de entrega: k = 11
+estado: entregue
+```
+
+O arquivo `src/tcc_facens/communication.py` implementa essa camada por meio de dois objetos principais:
+
+* **`Message`:** representa uma mensagem individual, identificando origem, destino, conteúdo, instante de envio e instante previsto de entrega.
+* **`CommunicationChannel`:** representa o canal entre agentes. Ele decide se a mensagem será perdida, coloca mensagens aceitas em uma fila, entrega as mensagens cujo atraso terminou, guarda a última mensagem válida de cada par origem-destino e contabiliza tentativas, entregas, perdas e mensagens pendentes.
+
+O canal foi criado para que a simulação não trate “comunicação” apenas como uma matriz estática. Ele permite testar o que acontece quando o controlador não recebe uma atualização nova. A política implementada é manter a última mensagem válida; antes da primeira entrega, o consenso usa o estado atual como inicialização.
+
+#### Por que usar uma camada de canal?
+
+Sem uma camada de canal, o código saberia somente se uma aresta está ligada ou desligada. Isso modela conectividade, mas não modela a mensagem em si. Com o canal, podemos distinguir:
+
+1. o agente publicou uma informação;
+2. o canal perdeu ou aceitou a mensagem;
+3. a mensagem ficou aguardando na fila;
+4. o receptor recebeu a informação;
+5. o controlador continuou usando uma informação antiga enquanto esperava uma nova.
+
+Essa separação torna possível investigar perdas, atrasos, obsolescência da informação e recuperação depois de uma falha.
+
+#### O que é `rho` e por que ele aparece nas mensagens?
+
+`rho` é a **fração de curtailment** de um agente, isto é, a porcentagem da potência fotovoltaica disponível que será cortada:
+
+$$
+\rho_i = \frac{P_{\mathrm{cortada},i}}{P_{\mathrm{disponível},i}},
+\qquad 0 \leq \rho_i \leq 1.
+$$
+
+Por exemplo, se `rho = 0,20`, o agente corta aproximadamente 20% da potência que poderia gerar. Se `rho = 0`, não há corte; se `rho = 1`, toda a geração disponível é cortada.
+
+O `rho` é enviado porque ele é a variável que os agentes precisam compartilhar para alcançar o curtailment proporcional. A falha não é implementada “no rho” diretamente. A falha ocorre no caminho da mensagem que transporta o `rho`: quando uma mensagem é perdida ou atrasada, o vizinho não recebe o novo valor e usa a última informação disponível. Assim, o estado local de cada agente pode divergir temporariamente dos demais.
+
+Essa diferença é importante: o canal não altera artificialmente o valor de `rho`; ele altera quais valores cada agente consegue observar.
+
+#### Explicação dos parâmetros do canal
+
+O exemplo abaixo habilita o canal probabilístico:
+
+```powershell
+uv run python Experimento_Consenso_comunication_failure.py `
+  --enable-channel `
+  --loss-probability 0.05 `
+  --delay-steps 1 `
+  --seed 42 `
+  --output-dir Resultados/FASE0_EXP001_CHANNEL
+```
+
+Cada argumento tem uma função específica:
+
+| Parâmetro | O que significa | Valores aceitos | Efeito do exemplo |
+|---|---|---|---|
+| `--enable-channel` | Liga o modelo probabilístico de mensagens. | Não recebe valor; presente ou ausente. | O canal é usado no consenso. |
+| `--loss-probability` | Probabilidade de uma transmissão ser perdida. | Número real entre `0` e `1`, inclusive. | `0.05` significa 5% de perda esperada por tentativa. |
+| `--delay-steps` | Quantidade inteira de iterações até a entrega. | Inteiro maior ou igual a `0`. | `1` significa que uma mensagem enviada em `k` pode ser usada em `k+1`. |
+| `--seed` | Semente do gerador pseudoaleatório. | Inteiro; também pode ser omitido. | `42` permite repetir a mesma sequência de perdas. |
+| `--output-dir` | Pasta para os resultados da execução. | Caminho válido. | Evita sobrescrever o baseline. |
+
+Valores típicos:
+
+* `--loss-probability 0`: nenhuma perda aleatória; útil para conferir o comportamento sem perdas.
+* `--loss-probability 0.05`: 5% de perda por tentativa.
+* `--loss-probability 1`: todas as transmissões são perdidas; é um teste extremo.
+* `--delay-steps 0`: entrega imediata dentro do ciclo.
+* `--delay-steps 1`: uma iteração de atraso.
+* `--delay-steps 10`: atraso prolongado, útil para análise de informação obsoleta.
+* `--seed 42`: execução reproduzível.
+* ausência de `--seed`: o Python escolhe uma sequência não fixada; duas execuções podem produzir resultados diferentes.
+
+`--loss-probability` não aceita valores negativos nem maiores que `1`. `--delay-steps` não aceita valores negativos. O programa interrompe a execução com uma mensagem de erro quando esses limites são violados.
+
+#### O que é uma seed (semente)?
+
+O canal usa números pseudoaleatórios para decidir se cada mensagem será perdida. “Pseudoaleatório” significa que os números parecem aleatórios, mas são produzidos por um algoritmo determinístico. A **seed** é o valor inicial desse algoritmo.
+
+Com a mesma configuração e a mesma seed, a sequência de decisões tende a ser a mesma:
+
+```text
+seed 42 + perda 5%  -> mensagem 1 entregue, mensagem 2 perdida, ...
+seed 42 + perda 5%  -> mesma sequência novamente
+seed 43 + perda 5%  -> outra sequência de perdas
+```
+
+A seed não reduz a aleatoriedade do modelo; ela torna a realização específica auditável e repetível. Por isso ela deve ser registrada no `manifest.json` junto com a taxa de perda e o atraso.
+
+#### Por que usar uma abordagem estatística?
+
+Uma única execução com uma única seed mostra apenas uma realização possível do canal. Ela pode ter, por acaso, mais ou menos perdas que a média esperada. Para avaliar o comportamento típico, executamos o mesmo cenário várias vezes com seeds diferentes.
+
+O script `scripts/run_channel_sweep.py` faz isso. Com `--replications 30`, por exemplo, ele executa 30 realizações independentes, preserva cada pasta `replicacao_###/` e calcula:
+
+* **contagem:** quantas execuções contribuíram para a métrica;
+* **média:** comportamento médio das replicações;
+* **desvio-padrão:** quanto os resultados variam entre seeds;
+* **mínimo e máximo:** faixa observada nas execuções.
+
+A abordagem estatística é necessária porque “5% de perda” é uma probabilidade por tentativa, não a promessa de exatamente 5% em toda execução curta. Com mais replicações, estimamos melhor a distribuição de resultados e podemos responder perguntas como:
+
+* em quantas execuções houve violação de tensão?
+* qual é o número médio de iterações?
+* qual arquitetura apresenta menor dispersão de curtailment?
+* quão sensível é o resultado ao atraso e à taxa de perda?
+
+As replicações não substituem o baseline determinístico. O baseline explica o efeito estrutural da topologia; as replicações medem a variabilidade introduzida pelo canal probabilístico.
+
+Exemplo de varredura estatística:
+
+```powershell
+uv run python scripts/run_channel_sweep.py `
+  --replications 30 `
+  --loss-probability 0.05 `
+  --delay-steps 1 `
+  --seed 42 `
+  --output-dir Resultados/SWEEP_005PCT_1STEP
+```
+
+Nesse caso, a primeira execução usa a seed `42`, a segunda usa `43` e assim por diante. O resumo estatístico não deve ser interpretado como prova universal para qualquer rede: ele descreve a distribuição observada sob os parâmetros, curvas, alimentador, topologia e política de memória escolhidos.
+
+#### Quais arquivos comprovam o comportamento do canal?
+
+No modo probabilístico, os principais artefatos são:
+
+* `manifest.json`: informa se o canal estava habilitado, a probabilidade de perda, o atraso e a seed;
+* `raw/channel_messages.csv`: uma linha por tentativa, com origem, destino, passo de envio, passo de entrega e estado (`delivered`, `lost` ou `queued`);
+* `raw/timestep.csv`: inclui os contadores agregados de mensagens tentadas, entregues, perdidas e pendentes por hora;
+* `tables/resumo_completo.csv`: reúne as métricas elétricas e de curtailment;
+* `resumo_estatistico.csv`: resume as replicações quando é usado o script de varredura.
+
+O arquivo `raw/log_mensagens.csv` continua sendo o registro do modelo topológico determinístico. Ele deve ser analisado separadamente do `channel_messages.csv`, pois os dois respondem a perguntas diferentes.
 
 ---
 

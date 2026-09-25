@@ -1,0 +1,163 @@
+alimentador: IEEE34bus\ieee34Mod3ORIGINAL_CBA.dss
+elemento_eletrico: PVSystem (curtailment via kVA, PF=1)
+multiplicador_base_de_carga: 1.1
+fator_de_escala_dos_pvs_lambda: 1.0
+agentes_na_ordem_do_grafo:
+- posicao: 1
+  pvsystem: pv2
+  barra: '816'
+  kva: 125.0
+- posicao: 2
+  pvsystem: pv1
+  barra: '824'
+  kva: 150.0
+- posicao: 3
+  pvsystem: pv3
+  barra: '828'
+  kva: 100.0
+- posicao: 4
+  pvsystem: pv4
+  barra: '830'
+  kva: 130.0
+- posicao: 5
+  pvsystem: pv5
+  barra: '850'
+  kva: 90.0
+- posicao: 6
+  pvsystem: pv6
+  barra: '832'
+  kva: 115.0
+grafo_nominal_enlaces_1_indexado:
+- - 1
+  - 2
+- - 2
+  - 3
+- - 3
+  - 4
+- - 4
+  - 5
+- - 5
+  - 6
+- - 2
+  - 5
+arquiteturas:
+- leader_follower
+- leaderless
+cenarios:
+- nome: C0
+  descricao: comunicacao ideal
+  arestas_removidas_1_indexado: []
+  posicao_do_agente_isolado: null
+  iteracao_de_retorno: null
+  m_e_lider: null
+- nome: C1
+  descricao: perda do enlace (2,5), grafo conexo
+  arestas_removidas_1_indexado:
+  - - 2
+    - 5
+  posicao_do_agente_isolado: null
+  iteracao_de_retorno: null
+  m_e_lider: null
+- nome: C2
+  descricao: perda do enlace (1,2), lider particionado
+  arestas_removidas_1_indexado:
+  - - 1
+    - 2
+  posicao_do_agente_isolado: null
+  iteracao_de_retorno: null
+  m_e_lider: null
+- nome: C3_lider_curta
+  descricao: lider isolado na hora de pico, retorna em k=20
+  arestas_removidas_1_indexado: []
+  posicao_do_agente_isolado: 1
+  iteracao_de_retorno: 20
+  m_e_lider: true
+- nome: C3_lider_longa
+  descricao: lider isolado durante toda a hora de pico
+  arestas_removidas_1_indexado: []
+  posicao_do_agente_isolado: 1
+  iteracao_de_retorno: 500
+  m_e_lider: true
+- nome: C3_naolider_curta
+  descricao: agente da posicao 6 isolado na hora de pico, retorna em k=20
+  arestas_removidas_1_indexado: []
+  posicao_do_agente_isolado: 6
+  iteracao_de_retorno: 20
+  m_e_lider: false
+- nome: C3_naolider_longa
+  descricao: agente da posicao 6 isolado durante toda a hora de pico
+  arestas_removidas_1_indexado: []
+  posicao_do_agente_isolado: 6
+  iteracao_de_retorno: 500
+  m_e_lider: false
+hora_da_falha_c3: 10
+epsilon: 0.16666666666666666
+regra_do_epsilon: 2/tr(L0), calculado no grafo nominal e fixo em todos os cenarios
+  (opcao (a), secao 4.5)
+ganho_beta: 5.0
+normalizacao_do_beta: beta identico nas duas arquiteturas (secao 7.5, opcao primaria)
+convencao_de_sinal: rho = fracao de curtailment; correcao somada (equivale a beta_paper
+  = 1 - rho)
+tensao_limite_pu: 1.05
+tensao_minima_para_contagem_de_subtensao_pu: 0.95
+periodo_do_ciclo_de_comunicacao_s_apenas_rotulo_do_log: 0.2
+tolerancia_de_tensao_pu: 0.0005
+tolerancia_de_consenso: 1.0e-06
+numero_maximo_de_iteracoes: 500
+criterio_de_parada: 'eletrico: V vista pelo controle <= V_lim + tol, ou k_max; consenso
+  reportado separadamente'
+tensao_monitorada_lf: max das barras com PV na componente conexa do lider em A(k)
+  (secao 7.3)
+curvas_diarias:
+  origem: lido de Entradas\curvas_24h.csv (curvas de exemplo do pesquisador)
+  observacao: curvas de exemplo; irradiancia = curva_pv_kw / pico da curva
+  multiplicador_de_carga:
+  - 0.42
+  - 0.42
+  - 0.421
+  - 0.421
+  - 0.42
+  - 0.4
+  - 0.42
+  - 0.4
+  - 0.46
+  - 0.48
+  - 0.5
+  - 0.56
+  - 0.57
+  - 0.55
+  - 0.5
+  - 0.6
+  - 0.51
+  - 0.61
+  - 0.56
+  - 0.9
+  - 0.97
+  - 0.995
+  - 1.0
+  - 0.85
+  irradiancia_pu:
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.125
+  - 0.375
+  - 0.6833333333333333
+  - 0.875
+  - 0.9833333333333333
+  - 1.0
+  - 0.9166666666666666
+  - 0.7333333333333333
+  - 0.5
+  - 0.225
+  - 0.025
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0

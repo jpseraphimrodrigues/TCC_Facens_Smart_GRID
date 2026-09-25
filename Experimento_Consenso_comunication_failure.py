@@ -29,7 +29,7 @@ Execução:
 # IMPORTAÇÕES
 # =============================================================================
 
-import datetime
+import argparse
 import hashlib
 import json
 import logging
@@ -37,6 +37,7 @@ import platform
 import re
 import subprocess
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 import matplotlib
@@ -49,7 +50,6 @@ import yaml
 from altdss import altdss
 from dss import SolveModes
 
-
 # =============================================================================
 # CONFIGURAÇÃO DO EXPERIMENTO
 # Tudo o que é mantido CONSTANTE entre cenários e arquiteturas fica aqui (§6).
@@ -61,6 +61,13 @@ ARQUIVO_DSS_DO_ALIMENTADOR = PASTA_DO_ALIMENTADOR / "ieee34Mod3ORIGINAL_CBA.dss"
 ARQUIVO_DE_CURVAS_DIARIAS = PASTA_DO_PROJETO / "Entradas" / "curvas_24h.csv"
 PASTA_DE_RESULTADOS = PASTA_DO_PROJETO / "Resultados" / "FASE0_EXP001"  # §5.5
 PASTA_DE_LOGS = PASTA_DE_RESULTADOS / "logs"
+
+CONFIGURACAO_COMUNICACAO = {
+    "habilitado": False,
+    "probabilidade_de_perda": 0.0,
+    "atraso_em_iteracoes": 0,
+    "semente": None,
+}
 
 # --- Rede elétrica -----------------------------------------------------------
 # Os 6 GFVs na ordem do código de referência (lista_barras_DGs), §4.2.
@@ -83,6 +90,8 @@ TENSAO_LIMITE_PU = 1.05  # V_lim = V_ref (§2.0, §4.5)
 # Decisão do pesquisador: 1,050 (3 casas) já é regulação aceitável -> tol = 5e-4,
 # isto é, qualquer tensão que arredonda para 1,050 pu (< 1,0505) é aceita.
 TOLERANCIA_DE_TENSAO_PU = 5e-4
+# Critério separado do critério elétrico: mede uniformidade de rho entre agentes.
+TOLERANCIA_DE_CONSENSO = 1e-6
 # Limite inferior usado só para CONTAR subtensões (relatório, não controle),
 # igual ao VMIN_VIOL do código de referência.
 TENSAO_MINIMA_PU = 0.95
@@ -447,8 +456,7 @@ def calcular_epsilon_do_consenso(matriz_de_adjacencia):
     autovalores = np.linalg.eigvalsh(calcular_laplaciana(matriz_de_adjacencia))
     soma_dos_autovalores_nao_nulos = float(np.sum(autovalores[autovalores > 1e-10]))
     epsilon = 2.0 / soma_dos_autovalores_nao_nulos
-    if epsilon >= 0.99:
-        epsilon = 0.99
+    epsilon = min(0.99, epsilon)
     return epsilon
 
 
@@ -797,7 +805,7 @@ class RegistradorDeComunicacao:
                 )
                 self.mensagens.append(
                     {
-                        "timestamp_real": datetime.datetime.now().isoformat(timespec="milliseconds"),
+                        "timestamp_real": datetime.now(UTC).isoformat(timespec="milliseconds"),
                         "instante_simulado": instante_simulado,
                         "arquitetura": self.arquitetura,
                         "cenario": self.definicao_do_cenario.nome,
@@ -875,7 +883,7 @@ class RegistradorDeComunicacao:
         )
 
         registro = {
-            "timestamp_real": datetime.datetime.now().isoformat(timespec="milliseconds"),
+            "timestamp_real": datetime.now(UTC).isoformat(timespec="milliseconds"),
             "instante_simulado": instante_simulado,
             "arquitetura": self.arquitetura,
             "cenario": self.definicao_do_cenario.nome,
@@ -972,6 +980,29 @@ def misturar_por_consenso(fracao_de_curtailment, matriz_de_adjacencia, epsilon):
     """
     laplaciana = calcular_laplaciana(matriz_de_adjacencia)
     return fracao_de_curtailment - epsilon * (laplaciana @ fracao_de_curtailment)
+
+
+def misturar_por_consenso_com_canal(fracao_de_curtailment, matriz_de_adjacencia, epsilon, canal, iteracao):
+    """Mistura usando o último estado recebido por cada enlace direcionado.
+
+    A ausência de uma mensagem nova usa explicitamente a última mensagem válida;
+    antes da primeira entrega, usa o estado local atual como inicialização.
+    """
+    numero_de_agentes = len(fracao_de_curtailment)
+    for origem, destino in zip(*np.where(np.triu(matriz_de_adjacencia, k=1) > 0)):
+        canal.transmit(origem, destino, {"rho": float(fracao_de_curtailment[origem])}, iteracao)
+        canal.transmit(destino, origem, {"rho": float(fracao_de_curtailment[destino])}, iteracao)
+    canal.deliver_until(iteracao)
+
+    resultado = fracao_de_curtailment.copy()
+    for destino in range(numero_de_agentes):
+        for origem in range(numero_de_agentes):
+            if matriz_de_adjacencia[destino, origem] <= 0:
+                continue
+            mensagem = canal.current_state(origem, destino)
+            rho_recebido = fracao_de_curtailment[origem] if mensagem is None else mensagem.content["rho"]
+            resultado[destino] += epsilon * (rho_recebido - fracao_de_curtailment[destino])
+    return resultado
 
 
 def calcular_tensao_monitorada_pelo_lider(tensoes_locais, matriz_de_adjacencia, indice_do_lider):
@@ -1209,7 +1240,7 @@ def simular_dia_sem_controle(curvas, agentes):
 
 def executar_consenso_na_hora(
     arquitetura, grafo_de_comunicacao, hora, agentes, potencia_disponivel_kw, tensoes_iniciais, epsilon,
-    registrador_de_comunicacao,
+    registrador_de_comunicacao, canal=None,
 ):
     """
     Laço de consenso de UMA hora (§5.2).
@@ -1252,7 +1283,12 @@ def executar_consenso_na_hora(
                 if indice != INDICE_DO_LIDER_NO_GRAFO and termo_de_correcao[indice] != 0.0:
                     houve_correcao_fora_do_lider = True
 
-        fracao_misturada = misturar_por_consenso(fracao_de_curtailment, matriz_de_adjacencia, epsilon)
+        if canal is None:
+            fracao_misturada = misturar_por_consenso(fracao_de_curtailment, matriz_de_adjacencia, epsilon)
+        else:
+            fracao_misturada = misturar_por_consenso_com_canal(
+                fracao_de_curtailment, matriz_de_adjacencia, epsilon, canal, iteracao
+            )
         fracao_de_curtailment = np.clip(fracao_misturada + termo_de_correcao, 0.0, 1.0)
 
         aplicar_curtailment_nos_pvs(agentes, fracao_de_curtailment, potencia_disponivel_kw)
@@ -1285,6 +1321,11 @@ def executar_consenso_na_hora(
         arquitetura, tensoes_locais, matriz_final, INDICE_DO_LIDER_NO_GRAFO
     )
     controle_satisfeito = criterio_de_parada_eletrico_satisfeito(tensao_final_vista_pelo_controle)
+    erro_de_consenso_global_final = calcular_erro_de_consenso(fracao_de_curtailment)
+    erro_de_consenso_max_intra_particao_final = calcular_maior_erro_de_consenso_dentro_das_componentes(
+        fracao_de_curtailment, encontrar_componentes_conexas(matriz_final)
+    )
+    consenso_satisfeito = erro_de_consenso_global_final <= TOLERANCIA_DE_CONSENSO
 
     if iteracao == 0:
         status = "sem_sobretensao"  # o controle nem precisou agir
@@ -1298,9 +1339,17 @@ def executar_consenso_na_hora(
         "tensoes_locais": tensoes_locais,
         "numero_de_iteracoes": iteracao,
         "status": status,
+        "criterios": {
+            "eletrico_satisfeito": bool(controle_satisfeito),
+            "consenso_satisfeito": bool(consenso_satisfeito),
+            "atingiu_k_max": bool(iteracao >= NUMERO_MAXIMO_DE_ITERACOES),
+        },
+        "erro_de_consenso_global_final": erro_de_consenso_global_final,
+        "erro_de_consenso_max_intra_particao_final": erro_de_consenso_max_intra_particao_final,
         "componentes_finais": encontrar_componentes_conexas(matriz_final),
         "registros_das_iteracoes": registros_das_iteracoes,
         "houve_correcao_fora_do_lider": houve_correcao_fora_do_lider,
+        "metricas_do_canal": None if canal is None else canal.metrics(),
     }
 
 
@@ -1320,6 +1369,7 @@ def simular_dia_com_consenso(arquitetura, definicao_do_cenario, curvas, agentes,
     registros_por_hora = []
     registros_por_iteracao = []
     registros_de_todas_as_barras = []
+    registros_do_canal = []
     checagens = {"correcao_fora_do_lider": False}
 
     for hora in range(24):
@@ -1331,10 +1381,31 @@ def simular_dia_com_consenso(arquitetura, definicao_do_cenario, curvas, agentes,
         potencia_disponivel_kw = medir_potencia_ativa_gerada_por_agente_kw(agentes)
 
         registrador_de_comunicacao.iniciar_hora(hora)
+        canal = None
+        if CONFIGURACAO_COMUNICACAO["habilitado"]:
+            from tcc_facens.communication import CommunicationChannel
+
+            semente = CONFIGURACAO_COMUNICACAO["semente"]
+            semente_da_hora = None if semente is None else semente + hora
+            canal = CommunicationChannel(
+                loss_probability=CONFIGURACAO_COMUNICACAO["probabilidade_de_perda"],
+                delay_steps=CONFIGURACAO_COMUNICACAO["atraso_em_iteracoes"],
+                seed=semente_da_hora,
+            )
         resultado = executar_consenso_na_hora(
             arquitetura, grafo_de_comunicacao, hora, agentes, potencia_disponivel_kw, tensoes_iniciais, epsilon,
-            registrador_de_comunicacao,
+            registrador_de_comunicacao, canal,
         )
+        if canal is not None:
+            for evento in canal.events:
+                registros_do_canal.append(
+                    {
+                        **evento,
+                        "arquitetura": arquitetura,
+                        "cenario": definicao_do_cenario.nome,
+                        "hora": hora,
+                    }
+                )
         if resultado["houve_correcao_fora_do_lider"]:
             checagens["correcao_fora_do_lider"] = True
 
@@ -1375,6 +1446,16 @@ def simular_dia_com_consenso(arquitetura, definicao_do_cenario, curvas, agentes,
                     "tensao_maxima_rede_pu": tensao_maxima_da_rede,
                     "iteracoes": resultado["numero_de_iteracoes"],
                     "status": resultado["status"],
+                    "status_eletrico": resultado["status"],
+                    "eletrico_satisfeito": resultado["criterios"]["eletrico_satisfeito"],
+                    "consenso_satisfeito": resultado["criterios"]["consenso_satisfeito"],
+                    "atingiu_k_max": resultado["criterios"]["atingiu_k_max"],
+                    "erro_de_consenso_global_final": resultado["erro_de_consenso_global_final"],
+                    "erro_de_consenso_max_intra_particao_final": resultado["erro_de_consenso_max_intra_particao_final"],
+                    "mensagens_do_canal_tentadas": None if resultado["metricas_do_canal"] is None else resultado["metricas_do_canal"]["messages_attempted"],
+                    "mensagens_do_canal_entregues": None if resultado["metricas_do_canal"] is None else resultado["metricas_do_canal"]["messages_delivered"],
+                    "mensagens_do_canal_perdidas": None if resultado["metricas_do_canal"] is None else resultado["metricas_do_canal"]["messages_lost"],
+                    "mensagens_do_canal_pendentes": None if resultado["metricas_do_canal"] is None else resultado["metricas_do_canal"]["messages_pending"],
                     # Violação REAL (independe do que o controle "vê"): chave para H5.
                     "violacao_real_apos_controle": tensao_maxima_barras_pv
                     > TENSAO_LIMITE_PU + TOLERANCIA_DE_TENSAO_PU,
@@ -1397,6 +1478,7 @@ def simular_dia_com_consenso(arquitetura, definicao_do_cenario, curvas, agentes,
         "todas_as_barras": pd.DataFrame(registros_de_todas_as_barras),
         "comunicacao": pd.DataFrame(registrador_de_comunicacao.registros),
         "mensagens": pd.DataFrame(registrador_de_comunicacao.mensagens),
+        "mensagens_do_canal": pd.DataFrame(registros_do_canal),
         "checagens": checagens,
     }
 
@@ -1444,6 +1526,9 @@ def resumir_um_caso(dados_por_hora, hora_de_pico):
                 "horas_com_controle_ativo": int((uma_linha_por_hora["status"] != "sem_sobretensao").sum()),
                 "horas_nao_convergidas": int((uma_linha_por_hora["status"] == "nao_convergiu").sum()),
                 "iteracoes_totais_no_dia": int(uma_linha_por_hora["iteracoes"].sum()),
+                "horas_com_consenso_satisfeito": int(uma_linha_por_hora["consenso_satisfeito"].sum()),
+                "erro_consenso_global_hora_pico": float(linha_da_hora_de_pico["erro_de_consenso_global_final"]),
+                "consenso_satisfeito_hora_pico": bool(linha_da_hora_de_pico["consenso_satisfeito"]),
                 "iteracoes_hora_pico": int(linha_da_hora_de_pico["iteracoes"]),
                 "status_hora_pico": linha_da_hora_de_pico["status"],
                 "sigma_r_global_hora_pico": float(linha_da_hora_de_pico["sigma_r_global_hora"]),
@@ -2266,6 +2351,15 @@ def calcular_hash_da_matriz(matriz):
     return hashlib.sha256(np.ascontiguousarray(matriz).tobytes()).hexdigest()[:16]
 
 
+def calcular_hash_do_arquivo(caminho):
+    """Hash completo de um artefato que influencia a execução."""
+    sha256 = hashlib.sha256()
+    with caminho.open("rb") as arquivo:
+        for bloco in iter(lambda: arquivo.read(1024 * 1024), b""):
+            sha256.update(bloco)
+    return sha256.hexdigest()
+
+
 def salvar_config_yaml(pasta, agentes_na_ordem_do_grafo, epsilon, hora_de_pico, origem_das_curvas, curvas, cenarios):
     """config.yaml: tudo o que define o experimento (§5.5, §7.5)."""
     configuracao = {
@@ -2300,8 +2394,9 @@ def salvar_config_yaml(pasta, agentes_na_ordem_do_grafo, epsilon, hora_de_pico, 
         "tensao_minima_para_contagem_de_subtensao_pu": TENSAO_MINIMA_PU,
         "periodo_do_ciclo_de_comunicacao_s_apenas_rotulo_do_log": PERIODO_DO_CICLO_DE_COMUNICACAO_S,
         "tolerancia_de_tensao_pu": TOLERANCIA_DE_TENSAO_PU,
+        "tolerancia_de_consenso": TOLERANCIA_DE_CONSENSO,
         "numero_maximo_de_iteracoes": NUMERO_MAXIMO_DE_ITERACOES,
-        "criterio_de_parada": "eletrico: V vista pelo controle <= V_lim + tol, ou k_max",
+        "criterio_de_parada": "eletrico: V vista pelo controle <= V_lim + tol, ou k_max; consenso reportado separadamente",
         "tensao_monitorada_lf": "max das barras com PV na componente conexa do lider em A(k) (secao 7.3)",
         "curvas_diarias": {
             "origem": origem_das_curvas,
@@ -2320,10 +2415,18 @@ def salvar_manifest_json(pasta, lambda_2_por_cenario, hashes_por_cenario, violac
     import altdss as pacote_altdss
 
     manifest = {
-        "data_de_execucao": datetime.datetime.now().isoformat(timespec="seconds"),
+        "data_de_execucao": datetime.now(UTC).isoformat(timespec="seconds"),
         "versao_do_codigo_git": obter_versao_do_codigo(),
         "python": platform.python_version(),
         "altdss": getattr(pacote_altdss, "__version__", "desconhecida"),
+        "modelo_de_comunicacao": "falha deterministica de topologia; periodo de 0.2 s apenas no log",
+        "configuracao_do_canal": CONFIGURACAO_COMUNICACAO.copy(),
+        "arquivos_de_entrada": {
+            "codigo": calcular_hash_do_arquivo(Path(__file__)),
+            "rede": calcular_hash_do_arquivo(ARQUIVO_DSS_DO_ALIMENTADOR),
+            "curvas": calcular_hash_do_arquivo(ARQUIVO_DE_CURVAS_DIARIAS),
+            "lockfile": calcular_hash_do_arquivo(PASTA_DO_PROJETO / "uv.lock"),
+        },
         "lambda_2_por_cenario_estatico": lambda_2_por_cenario,
         "hash_da_adjacencia_por_cenario": hashes_por_cenario,
         "violacao_acumulada_S_i_pu_h": {
@@ -2349,6 +2452,27 @@ def preparar_pastas_de_resultados():
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Executa o experimento de consenso FACENS.")
+    parser.add_argument("--output-dir", type=Path, help="pasta de resultados desta execução")
+    parser.add_argument("--loss-probability", type=float, default=0.0, help="perda Bernoulli por mensagem")
+    parser.add_argument("--delay-steps", type=int, default=0, help="atraso inteiro em iterações")
+    parser.add_argument("--seed", type=int, default=None, help="semente do canal")
+    parser.add_argument("--enable-channel", action="store_true", help="habilita perda/atraso por mensagem")
+    argumentos = parser.parse_args()
+    global PASTA_DE_RESULTADOS, PASTA_DE_LOGS
+    if argumentos.output_dir is not None:
+        PASTA_DE_RESULTADOS = argumentos.output_dir.resolve()
+        PASTA_DE_LOGS = PASTA_DE_RESULTADOS / "logs"
+    CONFIGURACAO_COMUNICACAO.update(
+        habilitado=argumentos.enable_channel,
+        probabilidade_de_perda=argumentos.loss_probability,
+        atraso_em_iteracoes=argumentos.delay_steps,
+        semente=argumentos.seed,
+    )
+    if not 0.0 <= argumentos.loss_probability <= 1.0:
+        parser.error("--loss-probability deve estar entre 0 e 1")
+    if argumentos.delay_steps < 0:
+        parser.error("--delay-steps não pode ser negativo")
     preparar_pastas_de_resultados()
     aplicar_estilo_das_figuras()
 
@@ -2405,6 +2529,7 @@ def main():
     tabelas_de_todas_as_barras = [barras_sem_controle]
     tabelas_de_comunicacao = []
     tabelas_de_mensagens = []
+    tabelas_de_mensagens_do_canal = []
     checagens_por_caso = {}
     for arquitetura in ARQUITETURAS_DO_EXPERIMENTO:
         for cenario in cenarios:
@@ -2417,6 +2542,7 @@ def main():
             tabelas_de_todas_as_barras.append(resultado_do_caso["todas_as_barras"])
             tabelas_de_comunicacao.append(resultado_do_caso["comunicacao"])
             tabelas_de_mensagens.append(resultado_do_caso["mensagens"])
+            tabelas_de_mensagens_do_canal.append(resultado_do_caso["mensagens_do_canal"])
             checagens_por_caso[(arquitetura, cenario.nome)] = resultado_do_caso["checagens"]
 
     dados_por_hora_todos = pd.concat(tabelas_por_hora, ignore_index=True)
@@ -2424,6 +2550,7 @@ def main():
     tabela_de_todas_as_barras = pd.concat(tabelas_de_todas_as_barras, ignore_index=True)
     tabela_de_comunicacao = pd.concat(tabelas_de_comunicacao, ignore_index=True)
     tabela_de_mensagens = pd.concat(tabelas_de_mensagens, ignore_index=True)
+    tabela_de_mensagens_do_canal = pd.concat(tabelas_de_mensagens_do_canal, ignore_index=True)
 
     # --- Resumos ---------------------------------------------------------------
     resumos = [resumir_um_caso(dados_sem_controle, hora_de_pico)]
@@ -2479,6 +2606,7 @@ def main():
     tabela_de_todas_as_barras.to_csv(PASTA_DE_RESULTADOS / "raw" / "tensoes_todas_barras.csv", index=False)
     tabela_de_comunicacao.to_csv(PASTA_DE_RESULTADOS / "raw" / "log_comunicacao.csv", index=False)
     tabela_de_mensagens.to_csv(PASTA_DE_RESULTADOS / "raw" / "log_mensagens.csv", index=False)
+    tabela_de_mensagens_do_canal.to_csv(PASTA_DE_RESULTADOS / "raw" / "channel_messages.csv", index=False)
     violacoes_por_hora.to_csv(PASTA_DE_RESULTADOS / "summary" / "violacoes_por_hora.csv", index=False)
     curtailment_por_pv.to_csv(PASTA_DE_RESULTADOS / "summary" / "curtailment_por_pv.csv", index=False)
     resumo_de_comunicacao_por_hora.to_csv(PASTA_DE_RESULTADOS / "summary" / "comunicacao_por_hora.csv", index=False)

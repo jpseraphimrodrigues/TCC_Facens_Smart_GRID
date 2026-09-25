@@ -13,6 +13,8 @@ A formulação que os artefatos sustentam é:
 
 Não é tecnicamente correto, no estado atual, apresentar o trabalho como avaliação geral de perda aleatória de pacotes, atraso, fila, mensagens obsoletas ou robustez de uma rede real. As mensagens são classificadas como `ENTREGUE`/`PERDIDA`, mas não são armazenadas nem consumidas por uma camada de entrega: a dinâmica usa diretamente a matriz de adjacência no consenso.
 
+> Necessária investigação de correção da fução que simula a falha implementar corretamente essa falha, ou de como a falha é detectada, a fim de validar o método.
+
 Há uma ressalva de rastreabilidade: `Resultados/FASE0_EXP001/manifest.json` registra o commit `7219216` e execução em `2026-09-24`, mas o checkout auditado está em `797f18d` (`Adaptacao_readme`). Os números deste documento são, portanto, resultados versionados do manifesto, não uma prova de execução pelo checkout atual.
 
 ## 1. Reconstrução do experimento
@@ -84,6 +86,13 @@ O manifesto confirma `lambda_2(C0)=0,6571`, `lambda_2(C1)=0,2679`, `lambda_2(C2)
 Esses dados sustentam que C2 degrada o `leader_follower` no desenho registrado e que o `leaderless` mantém a tensão no caso registrado. Não sustentam superioridade geral: faltam replicações, topologias, perfis e um modelo probabilístico.
 
 ## 3. Achados críticos e correções sugeridas
+
+### A0 - Altíssima: Caso controle efetivo sem problemas de comunicação
+Hoje tem caso sem controle, e os demais com controle, mas com problemas de comunicação. PRecisa-se reestruturar para se ter: 
+- Caso sem controle (baseline)
+- Caso com conrole normal (baseline para provar que o consenso funciona)
+- Casos de falhas de comunicação já implementadas. 
+
 
 ### A1 — Alta prioridade: fenômeno de comunicação superdeclarado
 
@@ -210,7 +219,23 @@ Evitar: “robusto a perda de pacotes”, “atraso de 0,2 s”, “recuperaçã
 
 O experimento é uma base funcional, com boa instrumentação de resultados e invariantes elétricos. A correção essencial é de escopo: ele avalia conectividade e isolamento determinísticos em um controlador por snapshots. Com essa qualificação, sustenta método e resultados condicionados ao desenho atual. Para uma conclusão geral sobre robustez de comunicação, são necessárias reexecução rastreável, testes e extensão probabilística/temporal.
 
+## 7. Implementação realizada após a auditoria
+
+As primeiras correções do plano foram implementadas no código:
+
+- o manifesto passou a registrar hashes do código, rede, curvas e lockfile;
+- o resultado separa status elétrico, consenso e `k_max`;
+- o entry point `tcc-facens` executa o experimento;
+- `src/tcc_facens/communication.py` implementa perdas, atrasos, fila, semente e última mensagem válida;
+- o consenso possui caminho opcional por estado recebido;
+- a execução aceita `--enable-channel`, `--loss-probability`, `--delay-steps`, `--seed` e `--output-dir`;
+- os CSVs registram contadores reais do canal por hora;
+- foram adicionados seis testes estruturais e dependências de desenvolvimento.
+
+Uma execução ponta a ponta foi validada em `Resultados/FASE0_EXP001_CHANNEL_TEST`, com perda de `0,05`, atraso de uma iteração e semente `42`. Em LF/C0/hora 10, o arquivo `raw/timestep.csv` registrou 2.676 mensagens tentadas, 2.533 entregues, 131 perdidas e 12 pendentes.
+
+O log legado de `comunicacao_*.log` continua registrando a topologia determinística. O novo arquivo `raw/channel_messages.csv` é a fonte por mensagem do modelo probabilístico; os contadores `mensagens_do_canal_*` do `timestep.csv` e a configuração do manifesto complementam essa fonte.
+
 ## Evidências consultadas
 
 `Experimento_Consenso_comunication_failure.py`; `Resultados/FASE0_EXP001/manifest.json`; `Resultados/FASE0_EXP001/tables/resumo_completo.csv`; `Resultados/FASE0_EXP001/summary/convergencia_por_cenario.csv`; `Resultados/FASE0_EXP001/summary/comunicacao_por_caso.csv`; `Resultados/FASE0_EXP001/config.yaml`; `pyproject.toml`; `src/tcc_facens/__init__.py`.
-
