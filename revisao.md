@@ -1,3 +1,5 @@
+> **Documento legado (preservado em 2026-10-09).** O conteúdo desta auditoria foi consolidado em [`docs/auditoria.md`](docs/auditoria.md), que é a fonte canônica atual de achados, correções e pendências. Este arquivo é mantido sem alterações de conteúdo como registro histórico da revisão de 25/09/2026.
+
 # Auditoria técnica do experimento — TCC FACENS
 
 Data: 2026-09-25  

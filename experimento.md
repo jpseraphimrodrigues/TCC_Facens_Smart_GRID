@@ -1,3 +1,5 @@
+> **Nota (2026-10-09).** Especificação de desenho do experimento, referenciada pelo código por número de seção (§) — preservada sem alterações. Parte do texto foi superada pela implementação (ver decisões D1–D17 em [`implementacao.md`](implementacao.md) e AUD-TCC-005 em [`docs/auditoria.md`](docs/auditoria.md)). O estado atual consolidado está em [`docs/`](docs/).
+
 # Experimento — Fase 0: Impacto de Falhas de Comunicação no Consenso Proporcional (Leader-Follower vs. Leaderless)
 
 ## Análise científica, inferência de hipóteses e orquestração experimental

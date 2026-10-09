@@ -1,3 +1,5 @@
+> **Nota (2026-10-09).** Registro de implementação preservado sem alterações. Seu conteúdo foi consolidado em [`docs/metodologia.md`](docs/metodologia.md), [`docs/resultados_discussao.md`](docs/resultados_discussao.md) e [`docs/auditoria.md`](docs/auditoria.md), que são as fontes canônicas atuais.
+
 # Implementação — Fase 0: Consenso proporcional sob falha de comunicação (Leader-Follower × Leaderless)
 
 > Registro do que foi implementado a partir de `experimento.md`, das decisões tomadas durante a implementação e das evidências de execução. Fonte de verdade do desenho experimental continua sendo `experimento.md`; este documento registra **como** ele foi materializado em código e **o que** a primeira execução produziu.
